@@ -1,0 +1,9 @@
+# Contexto de la imagen de CodeIgniter (raíz del repositorio)
+.git
+.env
+**/vendor
+**/.venv
+**/node_modules
+**/__pycache__
+**/.pytest_cache
+wildfly/target

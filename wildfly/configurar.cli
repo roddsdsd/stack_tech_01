@@ -1,0 +1,15 @@
+# Stack tecnológico 02 · configuración de WildFly con jboss-cli
+# Se ejecuta al construir la imagen, con el servidor embebido (sin arrancarlo).
+
+embed-server --server-config=standalone.xml --std-out=echo
+
+# 1. El driver JDBC de Microsoft como módulo del servidor
+module add --name=com.microsoft.sqlserver --resources=/tmp/mssql-jdbc.jar --dependencies=java.se,jakarta.transaction.api
+
+# 2. Declarar el driver a partir del módulo
+/subsystem=datasources/jdbc-driver=sqlserver:add(driver-name=sqlserver, driver-module-name=com.microsoft.sqlserver, driver-class-name=com.microsoft.sqlserver.jdbc.SQLServerDriver)
+
+# 3. El DataSource (pool de conexiones). ${env.X:defecto} se resuelve al arrancar.
+data-source add --name=Stack02DS --jndi-name=java:jboss/datasources/Stack02DS --driver-name=sqlserver --connection-url="jdbc:sqlserver://${env.DB_HOST:sqlserver}:${env.DB_PORT:1433};databaseName=${env.DB_NAME:stack02};encrypt=true;trustServerCertificate=true" --user-name="${env.DB_USER:stack_app}" --password="${env.DB_PASSWORD}" --min-pool-size=0 --max-pool-size=5 --check-valid-connection-sql="SELECT 1" --validate-on-match=true --background-validation=false
+
+stop-embedded-server

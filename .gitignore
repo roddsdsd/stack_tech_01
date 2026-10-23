@@ -1,0 +1,17 @@
+# Secretos
+.env
+
+# Dependencias que se descargan
+**/vendor/
+**/.venv/
+**/node_modules/
+
+# Artefactos y cachés
+wildfly/target/
+**/__pycache__/
+**/.pytest_cache/
+*.log
+
+# Editores
+.idea/
+.vscode/

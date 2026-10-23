@@ -1,0 +1,110 @@
+# Stack tecnológico 02 · CI/CD
+# CI: pruebas y construcción en cada push y Pull Request.
+# CD: publicación de imágenes en ghcr.io cuando el cambio llega a main.
+
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  fastapi:
+    name: FastAPI · pytest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: fastapi
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: pytest -q
+
+  wildfly:
+    name: WildFly · mvn package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - run: mvn -B package --file wildfly/pom.xml
+
+  codeigniter:
+    name: CodeIgniter · php -l
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+      - run: find codeigniter -name "*.php" -print0 | xargs -0 -n1 php -l
+
+  integracion:
+    name: Integración · stack completo
+    needs: [fastapi, wildfly, codeigniter]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose up -d --build
+      - name: Consultar cada servicio
+        run: |
+          espera="--retry 40 --retry-delay 5 --retry-all-errors -fsS"
+          curl $espera -o grafo.json http://localhost:8000/api/grafo
+          curl $espera -o pagina.html http://localhost:8080/tecnologia/sqlserver
+          grep -q "SQL Server" pagina.html
+          curl $espera http://localhost:8080/salud; echo
+          curl $espera http://localhost:8081/monitor/api/estado; echo
+          # WildFly acaba de escribir en verificaciones; FastAPI debe leerlo
+          curl $espera -o verificaciones.json http://localhost:8000/api/verificaciones
+          grep -q "sqlserver" verificaciones.json
+      - name: Registros si algo falló
+        if: failure()
+        run: docker compose logs
+      - if: always()
+        run: docker compose down -v
+
+  publicar:
+    name: Publicar · ${{ matrix.servicio }}
+    needs: integracion
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - servicio: fastapi
+            contexto: fastapi
+            dockerfile: fastapi/Dockerfile
+          - servicio: wildfly
+            contexto: wildfly
+            dockerfile: wildfly/Dockerfile
+          - servicio: codeigniter
+            contexto: .
+            dockerfile: codeigniter/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+      - name: Nombre de la imagen en minúsculas
+        run: echo "IMAGEN=ghcr.io/${GITHUB_REPOSITORY,,}/${{ matrix.servicio }}" >> "$GITHUB_ENV"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.contexto }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ env.IMAGEN }}:latest
+            ${{ env.IMAGEN }}:${{ github.sha }}
